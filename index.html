@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Mobile Tilt Physics</title>
+
+  <!-- Physics engine -->
+  <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #f5f5f5;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+    }
+    #enable-motion {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 20px;
+      font-size: 16px;
+      background: #222;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      z-index: 10;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <button id="enable-motion">Enable Motion</button>
+
+  <script>
+    const { Engine, Render, Runner, World, Bodies } = Matter;
+
+    const engine = Engine.create();
+    engine.world.gravity.scale = 0.0015;  // tune feel
+
+    const render = Render.create({
+      element: document.body,
+      engine: engine,
+      options: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        wireframes: false,
+        background: '#f5f5f5'
+      }
+    });
+
+    Render.run(render);
+    const runner = Runner.create();
+    Runner.run(runner, engine);
+
+    // --- Create walls ---
+    function createWalls() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const t = 100; // thickness
+
+      return [
+        Bodies.rectangle(w/2, -t/2, w, t, { isStatic: true }),
+        Bodies.rectangle(w/2, h+t/2, w, t, { isStatic: true }),
+        Bodies.rectangle(-t/2, h/2, t, h, { isStatic: true }),
+        Bodies.rectangle(w+t/2, h/2, t, h, { isStatic: true })
+      ];
+    }
+
+    const walls = createWalls();
+    World.add(engine.world, walls);
+
+    // --- Add balls ---
+    for (let i = 0; i < 10; i++) {
+      World.add(engine.world, Bodies.circle(
+        50 + (i * 35),
+        80 + ((i % 3) * 30),
+        20,
+        {
+          restitution: 0.7,
+          friction: 0.01,
+          render: { fillStyle: '#3498db' }
+        }
+      ));
+    }
+
+    // --- Tilt → gravity mapping ---
+    function handleOrientation(e) {
+      if (e.beta == null || e.gamma == null) return;
+
+      const gx = Math.max(-1, Math.min(1, e.gamma / 45));  // left/right tilt
+      const gy = Math.max(-1, Math.min(1, e.beta / 45));   // forward/back tilt
+
+      engine.world.gravity.x = gx;
+      engine.world.gravity.y = gy;
+    }
+
+    window.addEventListener('deviceorientation', handleOrientation, true);
+
+    // --- iOS permission flow ---
+    const btn = document.getElementById('enable-motion');
+
+    btn.addEventListener('click', async () => {
+      // Only iOS requires this; safe to call on all devices.
+      if (typeof DeviceMotionEvent !== "undefined" &&
+          typeof DeviceMotionEvent.requestPermission === "function") {
+        try {
+          const res = await DeviceMotionEvent.requestPermission();
+          if (res !== "granted") {
+            alert("Motion access denied.");
+            return;
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      btn.remove();
+    });
+
+    // --- Handle window resize ---
+    window.addEventListener('resize', () => {
+      Render.stop(render);
+      World.remove(engine.world, walls);
+      const newWalls = createWalls();
+      World.add(engine.world, newWalls);
+      render.canvas.width = window.innerWidth;
+      render.canvas.height = window.innerHeight;
+      Render.run(render);
+    });
+
+  </script>
+</body>
+</html>
