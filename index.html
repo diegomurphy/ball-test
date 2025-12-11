@@ -3,32 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Mobile Tilt Physics + Sound + Drag</title>
+  <title>Mobile Tilt Physics + Inertial Forces</title>
 
   <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 
   <style>
-    html, body {
-      margin: 0;
-      height: 100%;
-      overflow: hidden;
-      background: #f5f5f5;
-      touch-action: none;
-    }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #f5f5f5; touch-action:none; }
     canvas { display: block; }
     #enable-motion {
       position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 12px 20px;
-      font-size: 16px;
-      background: #222;
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      z-index: 10;
-      cursor: pointer;
+      top: 20px; left: 50%; transform: translateX(-50%);
+      padding: 12px 20px; font-size: 16px;
+      background: #222; color: #fff; border-radius: 10px;
+      border: none; z-index: 10; cursor: pointer;
     }
   </style>
 </head>
@@ -37,17 +24,17 @@
 <button id="enable-motion">Enable Motion</button>
 
 <script>
-/* ---------------------------------------------------------
-   MATTER.JS ENGINE SETUP
---------------------------------------------------------- */
-const { Engine, Render, Runner, World, Bodies, Body, Events, Vector } = Matter;
+/* ================================================
+   MATTER.JS SETUP
+================================================ */
+const { Engine, Render, Runner, World, Bodies, Body, Vector, Events } = Matter;
 
 const engine = Engine.create();
 engine.world.gravity.scale = 0.0015;
 
 const render = Render.create({
   element: document.body,
-  engine: engine,
+  engine,
   options: {
     width: innerWidth,
     height: innerHeight,
@@ -55,16 +42,15 @@ const render = Render.create({
     background: '#f5f5f5'
   }
 });
+
 Render.run(render);
 Runner.run(Runner.create(), engine);
 
-/* ---------------------------------------------------------
+/* ================================================
    WALLS
---------------------------------------------------------- */
+================================================ */
 function createWalls() {
-  const w = innerWidth;
-  const h = innerHeight;
-  const t = 100;
+  const w = innerWidth, h = innerHeight, t = 100;
   return [
     Bodies.rectangle(w/2, -t/2, w, t, { isStatic: true }),
     Bodies.rectangle(w/2, h+t/2, w, t, { isStatic: true }),
@@ -75,28 +61,28 @@ function createWalls() {
 let walls = createWalls();
 World.add(engine.world, walls);
 
-/* ---------------------------------------------------------
+/* ================================================
    BALLS
---------------------------------------------------------- */
+================================================ */
 const balls = [];
 for (let i = 0; i < 10; i++) {
   const ball = Bodies.circle(
-    50 + (i * 35),
-    80 + ((i % 3) * 30),
+    50 + i * 35,
+    80 + (i % 3) * 30,
     20,
     {
       restitution: 0.7,
       friction: 0.01,
-      render: { fillStyle: '#3498db' }
+      render: { fillStyle: "#3498db" }
     }
   );
   balls.push(ball);
   World.add(engine.world, ball);
 }
 
-/* ---------------------------------------------------------
-   WOOD-KNOCK COLLISION SOUND (embedded base64 WAV)
---------------------------------------------------------- */
+/* ================================================
+   COLLISION WOOD KNOCK SOUND
+================================================ */
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 const knockBase64 =
@@ -108,34 +94,30 @@ let knockBuffer = null;
 fetch("data:audio/wav;base64," + knockBase64)
   .then(r => r.arrayBuffer())
   .then(arr => audioCtx.decodeAudioData(arr))
-  .then(buf => { knockBuffer = buf; });
+  .then(buf => knockBuffer = buf);
 
-function playKnock(volume = 0.3) {
+function playKnock(vol = 0.3) {
   if (!knockBuffer) return;
   const src = audioCtx.createBufferSource();
   const gain = audioCtx.createGain();
-  gain.gain.value = volume;
+  gain.gain.value = vol;
   src.buffer = knockBuffer;
   src.connect(gain).connect(audioCtx.destination);
   src.start(0);
 }
 
-/* ---------------------------------------------------------
-   PLAY SOUND ON COLLISION
---------------------------------------------------------- */
-Events.on(engine, "collisionStart", (event) => {
-  event.pairs.forEach(pair => {
-    const v = pair.collision.depth + pair.collision.penetration;
-    const intensity = Math.min(Math.abs(v) * 2, 1);
-    if (intensity > 0.05) playKnock(intensity);
+Events.on(engine, "collisionStart", e => {
+  e.pairs.forEach(p => {
+    const strength = Math.min(Math.abs(p.collision.depth) * 2, 1);
+    if (strength > 0.05) playKnock(strength);
   });
 });
 
-/* ---------------------------------------------------------
+/* ================================================
    TOUCH-DRAG + FLICK
---------------------------------------------------------- */
+================================================ */
 let activeBall = null;
-let lastPos = null;
+let lastTouch = null;
 
 function getTouchPos(e) {
   const t = e.touches[0];
@@ -143,60 +125,86 @@ function getTouchPos(e) {
 }
 
 function findBallAt(x, y) {
-  return balls.find(b => {
-    const dx = b.position.x - x;
-    const dy = b.position.y - y;
-    return Math.sqrt(dx*dx + dy*dy) < 25;
-  });
+  return balls.find(b => Vector.magnitude(Vector.sub(b.position, { x, y })) < 25);
 }
 
-window.addEventListener("touchstart", e => {
+addEventListener("touchstart", e => {
   const p = getTouchPos(e);
   const hit = findBallAt(p.x, p.y);
   if (hit) {
     activeBall = hit;
     Body.setStatic(activeBall, true);
-    lastPos = p;
+    lastTouch = p;
   }
-}, { passive: false });
+});
 
-window.addEventListener("touchmove", e => {
+addEventListener("touchmove", e => {
   if (!activeBall) return;
   const p = getTouchPos(e);
   Body.setPosition(activeBall, p);
-  lastPos = p;
-}, { passive: false });
-
-window.addEventListener("touchend", e => {
-  if (!activeBall || !lastPos) return;
-
-  const end = lastPos;
-  const start = activeBall.position;
-  const velocity = {
-    x: (end.x - start.x) * 0.2,
-    y: (end.y - start.y) * 0.2
-  };
-
-  Body.setStatic(activeBall, false);
-  Body.setVelocity(activeBall, velocity);
-
-  activeBall = null;
-  lastPos = null;
+  lastTouch = p;
 });
 
-/* ---------------------------------------------------------
-   TILT-TO-GRAVITY
---------------------------------------------------------- */
+addEventListener("touchend", e => {
+  if (!activeBall) return;
+  // compute flick velocity
+  const end = lastTouch;
+  const start = activeBall.position;
+  const vel = { x: (end.x - start.x) * 0.2, y: (end.y - start.y) * 0.2 };
+  Body.setStatic(activeBall, false);
+  Body.setVelocity(activeBall, vel);
+  activeBall = null;
+});
+
+/* ================================================
+   TILT-BASED GRAVITY
+================================================ */
 function handleOrientation(e) {
   if (e.beta == null || e.gamma == null) return;
-  engine.world.gravity.x = Math.max(-1, Math.min(1, e.gamma / 45));
-  engine.world.gravity.y = Math.max(-1, Math.min(1, e.beta / 45));
+  engine.world.gravity.x = e.gamma / 45;
+  engine.world.gravity.y = e.beta / 45;
 }
 addEventListener("deviceorientation", handleOrientation, true);
 
-/* ---------------------------------------------------------
+/* ================================================
+   NEW FEATURE:
+   INERTIAL IMPULSES FROM ACCELERATION
+================================================ */
+let lastAccel = { x: 0, y: 0, z: 0 };
+
+addEventListener("devicemotion", (e) => {
+  if (!e.accelerationIncludingGravity) return;
+
+  const a = e.accelerationIncludingGravity;
+
+  // High-pass filter: isolate sudden forces (jerks)
+  const jerk = {
+    x: a.x - lastAccel.x,
+    y: a.y - lastAccel.y,
+    z: a.z - lastAccel.z
+  };
+
+  lastAccel = { ...a };
+
+  // Magnitude threshold – ignore tiny movements
+  const mag = Math.sqrt(jerk.x**2 + jerk.y**2 + jerk.z**2);
+  if (mag < 1.5) return;  // tune sensitivity here
+
+  // Create impulse vector (invert to push balls opposite to phone thrust)
+  const impulse = {
+    x: -jerk.x * 0.02,
+    y: jerk.y * 0.02  // note sign flip to match screen coords
+  };
+
+  // Apply impulse to ALL balls
+  balls.forEach(ball => {
+    Body.applyForce(ball, ball.position, impulse);
+  });
+});
+
+/* ================================================
    iOS MOTION PERMISSION
---------------------------------------------------------- */
+================================================ */
 const btn = document.getElementById("enable-motion");
 btn.addEventListener("click", async () => {
   if (typeof DeviceMotionEvent !== "undefined" &&
@@ -207,14 +215,14 @@ btn.addEventListener("click", async () => {
         alert("Motion access denied");
         return;
       }
-    } catch (e) { console.error(e); }
+    } catch (err) { console.error(err); }
   }
   btn.remove();
 });
 
-/* ---------------------------------------------------------
-   RESIZE HANDLING
---------------------------------------------------------- */
+/* ================================================
+   RESIZE
+================================================ */
 addEventListener("resize", () => {
   Render.stop(render);
   World.remove(engine.world, walls);
